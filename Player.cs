@@ -5,75 +5,166 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 
-using System.Windows.Media;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 
 namespace MusicPlayer
 {
-    public class ControlsBar : UserControl
+    class AudioPlayer : MediaPlayer
     {
-        PrevButton PrevButton;
-        PlayPauseButton PlayPauseButton;
-        NextButton NextButton;
-        TimeLabel PositionLabel;
-        CustomSlider SeekSlider;
-        TimeLabel DurationLabel;
-        TrackInfo TrackInfo;
-        QueueButton QueueButton;
+        public PlayPrevButton PlayPrevButton { get; } = new PlayPrevButton();
+        public PlayPauseButton PlayPauseButton { get; } = new PlayPauseButton();
+        public PlayNextButton PlayNextButton { get; } = new PlayNextButton();
+        public TimeLabel PositionLabel { get; } = new TimeLabel();
+        public CustomSlider SeekSlider { get; } = new CustomSlider();
+        public TimeLabel DurationLabel { get; } = new TimeLabel();
+        public TrackInfo TrackInfo { get; } = new TrackInfo();
+        public QueueButton QueueButton { get; } = new QueueButton();
 
-        public ControlsBar()
+        List<Track> TracksQueue;
+        Track OpenedTrack;
+
+        bool IsPlaying
         {
-            var grid = new ControlsBarGrid();
-            Content = grid;
+            set
+            {
+                if (value) { Play(); }
+                else { Pause(); }
 
-            PrevButton = new PrevButton() { Margin = new Thickness(5) };
-            grid.AddChild(PrevButton, GridLength.Auto);
+                UpdateTimer.IsEnabled = value;
+                PlayPauseButton.IsPlaying = value;
+            }
+        }
 
-            PlayPauseButton = new PlayPauseButton() { Margin = new Thickness(5) };
-            grid.AddChild(PlayPauseButton, GridLength.Auto);
+        TimeSpan Duration
+        {
+            get
+            {
+                return new TimeSpan(1) + (
+                    NaturalDuration.HasTimeSpan ?
+                    NaturalDuration.TimeSpan :
+                    new TimeSpan()
+                );
+            }
+        }
 
-            NextButton = new NextButton() { Margin = new Thickness(5) };
-            grid.AddChild(NextButton, GridLength.Auto);
+        DispatcherTimer UpdateTimer = new DispatcherTimer()
+        {
+            Interval = new TimeSpan(0, 0, 0, 0, 100)
+        };
 
-            PositionLabel = new TimeLabel();
-            grid.AddChild(PositionLabel, GridLength.Auto);
+        public AudioPlayer()
+        {
+            // Events 
 
-            SeekSlider = new CustomSlider() { Margin = new Thickness(5) };
-            grid.AddChild(SeekSlider, new GridLength(1, GridUnitType.Star));
+            PlayPrevButton.Click += (sender, args) =>
+            {
+                PlayPrev();
+            };
+            PlayPauseButton.Click += (sender, args) =>
+            {
+                IsPlaying = PlayPauseButton.IsPlaying;
+            };
+            PlayNextButton.Click += (sender, args) =>
+            {
+                PlayNext();
+            };
 
-            DurationLabel = new TimeLabel();
-            grid.AddChild(DurationLabel, GridLength.Auto);
+            SeekSlider.MouseLeftButtonDown += (sender, args) =>
+            {
+                PositionLabel.Time = this.Duration * SeekSlider.Value;
+            };
+            SeekSlider.MouseMove += (sender, args) =>
+            {
+                PositionLabel.Time = this.Duration * SeekSlider.Value;
+            };
+            SeekSlider.MouseLeftButtonUp += (sender, args) =>
+            {
+                Position = this.Duration * SeekSlider.Value;
+            };
 
-            TrackInfo = new TrackInfo();
-            grid.AddChild(TrackInfo, new GridLength(215));
+            MediaOpened += (sender, args) =>
+            {
+                DurationLabel.Time = this.Duration;
+                TrackInfo.Track = OpenedTrack;
 
-            QueueButton = new QueueButton() { Margin = new Thickness(5) };
-            grid.AddChild(QueueButton, GridLength.Auto);
+                IsPlaying = true;
+            };
+            MediaEnded += (sender, args) => { PlayNext(); };
 
-            Margin = new Thickness(5, 4, 5, 4);
+            UpdateTimer.Tick += (source, args) =>
+            {
+                if (!SeekSlider.IsMouseCaptured)
+                {
+                    PositionLabel.Time = Position;
+                    SeekSlider.Value = Position / this.Duration;
+                }
+            };
+        }
+
+        public void StartNewQueue(List<Track> tracks, Track start_track)
+        {
+            TracksQueue = tracks;
+            OpenNewTrack(start_track);
+        }
+
+        void OpenNewTrack(Track track)
+        {
+            Open(new Uri(track.File.FullName));
+            OpenedTrack = track;
+        }
+
+        void PlayPrev()
+        {
+            var next_track_index = TracksQueue.IndexOf(OpenedTrack) - 1;
+
+            if (next_track_index >= 0)
+            {
+                if (Position < new TimeSpan(0, 0, 5))
+                {
+                    OpenNewTrack(TracksQueue[next_track_index]);
+                }
+                else
+                {
+                    Position = new TimeSpan();
+                }
+            }
+            else
+            {
+                Stop();
+                IsPlaying = false;
+
+                PositionLabel.Time = new TimeSpan();
+                SeekSlider.Value = 0;
+            }
+        }
+
+        void PlayNext()
+        {
+            var next_track_index = TracksQueue.IndexOf(OpenedTrack) + 1;
+
+            if (next_track_index < TracksQueue.Count)
+            {
+                OpenNewTrack(TracksQueue[next_track_index]);
+            }
+            else
+            {
+                Stop();
+                IsPlaying = false;
+
+                PositionLabel.Time = this.Duration;
+                SeekSlider.Value = 1;
+            }
         }
     }
 
-    class ControlsBarGrid : Grid
+    class PlayPrevButton : ButtonBase
     {
-        public void AddChild(FrameworkElement child, GridLength column_width)
-        {
-            ColumnDefinitions.Add(new ColumnDefinition() { Width = column_width });
-
-            Children.Add(child);
-            Grid.SetColumn(child, Children.Count - 1);
-
-            child.VerticalAlignment = VerticalAlignment.Center;
-        }
-    }
-
-    class PrevButton : ButtonBase
-    {
-        public PrevButton()
+        public PlayPrevButton()
         {
             var icon = new Grid();
-            Content = icon;
 
             icon.Children.Add(new Rectangle()
             {
@@ -87,8 +178,10 @@ namespace MusicPlayer
                 StrokeThickness = 1.5
             });
 
-            Cursor = Cursors.Hand;
+            Content = icon;
             ToolTip = "Previous track";
+
+            Cursor = Cursors.Hand;
         }
     }
 
@@ -125,7 +218,6 @@ namespace MusicPlayer
         public PlayPauseButton()
         {
             var icon = new Grid();
-            Content = icon;
 
             icon.Children.Add(new Ellipse()
             {
@@ -136,22 +228,20 @@ namespace MusicPlayer
             });
             icon.Children.Add(PlaybackIcon);
 
+            Content = icon;
+            IsPlaying = false;
+
             Cursor = Cursors.Hand;
 
-            IsPlaying = false;
-            Click += (object sender, RoutedEventArgs args) => 
-            {
-                IsPlaying = !IsPlaying;
-            };
+            Click += (sender, args) => { IsPlaying = !IsPlaying; };
         }
     }
 
-    class NextButton : ButtonBase
+    class PlayNextButton : ButtonBase
     {
-        public NextButton()
+        public PlayNextButton()
         {
             var icon = new Grid();
-            Content = icon;
 
             icon.Children.Add(new Rectangle()
             {
@@ -165,8 +255,10 @@ namespace MusicPlayer
                 StrokeThickness = 1.5
             });
 
-            Cursor = Cursors.Hand;
+            Content = icon;
             ToolTip = "Next track";
+
+            Cursor = Cursors.Hand;
         }
     }
 
@@ -179,7 +271,7 @@ namespace MusicPlayer
 
         public TimeLabel()
         {
-            Padding = new Thickness(3);
+            Padding = new Thickness();
             FontSize = 14;
 
             Time = new TimeSpan();
@@ -193,15 +285,19 @@ namespace MusicPlayer
 
         Rectangle TrackBeforeThumb = new Rectangle()
         {
-            Height = 3, RadiusX = 1.5, RadiusY = 1.5,
+            Height = 5, RadiusX = 1.5, RadiusY = 1.5,
             Fill = new SolidColorBrush(Color.FromRgb(101, 101, 101)),
+            Stroke = Brushes.Transparent,
+            StrokeThickness = 2,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
 
         Rectangle TrackAfterThumb = new Rectangle()
         {
-            Height = 3, RadiusX = 1.5, RadiusY = 1.5,
+            Height = 5, RadiusX = 1.5, RadiusY = 1.5,
             Fill = new SolidColorBrush(Color.FromRgb(176, 176, 176)),
+            Stroke = Brushes.Transparent,
+            StrokeThickness = 2,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
 
@@ -249,8 +345,6 @@ namespace MusicPlayer
             Value = 0;
 
             Cursor = Cursors.Hand;
-
-            InitializeMouseEvents();
         }
 
         void InitializeGrids()
@@ -272,26 +366,23 @@ namespace MusicPlayer
             TrackGrid.Margin = new Thickness(Thumb.Width / 2 - 1.5);
         }
 
-        void InitializeMouseEvents()
+        protected override void OnMouseLeftButtonDown(MouseButtonEventArgs args)
         {
-            MouseLeftButtonDown += (object sender, MouseButtonEventArgs args) =>
+            Value = (args.GetPosition(this).X - Thumb.Width / 2) / (ActualWidth - Thumb.Width);
+            args.MouseDevice.Capture(this);
+        }
+
+        protected override void OnMouseMove (MouseEventArgs args)
+        {
+            if (IsMouseCaptured)
             {
                 Value = (args.GetPosition(this).X - Thumb.Width / 2) / (ActualWidth - Thumb.Width);
-                args.MouseDevice.Capture(this);
-            };
+            }
+        }
 
-            MouseMove += (object sender, MouseEventArgs args) =>
-            {
-                if (IsMouseCaptured)
-                {
-                    Value = (args.GetPosition(this).X - Thumb.Width / 2) / (ActualWidth - Thumb.Width);
-                }
-            };
-
-            MouseLeftButtonUp += (object sender, MouseButtonEventArgs args) =>
-            {
-                args.MouseDevice.Capture(null);
-            };
+        protected override void OnMouseLeftButtonUp(MouseButtonEventArgs args)
+        {
+            args.MouseDevice.Capture(null);
         }
     }
 
@@ -300,13 +391,21 @@ namespace MusicPlayer
         Label TrackNameLabel;
         Label TrackAuthorLabel;
 
-        public string TrackName
+        public Track Track
         {
-            set {TrackNameLabel.Content = value;}
-        }
-        public string TrackAuthor
-        {
-            set {TrackAuthorLabel.Content = value;}
+            set
+            {
+                TrackNameLabel.Content = value.Name;
+
+                if (value.Author == null)
+                {
+                    TrackAuthorLabel.Content = "Unknown";
+                }
+                else
+                {
+                    TrackAuthorLabel.Content = value.Author;
+                }
+            }
         }
 
         public TrackInfo()
@@ -314,7 +413,7 @@ namespace MusicPlayer
             TrackNameLabel = new Label()
             {
                 Content = "Track name",
-                Padding = new Thickness(5, 0, 5, 0),
+                Padding = new Thickness(),
                 FontSize = 14,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(Color.FromRgb(37, 37, 37))
@@ -324,7 +423,7 @@ namespace MusicPlayer
             TrackAuthorLabel = new Label()
             {
                 Content = "Track author",
-                Padding = new Thickness(5, 0, 5, 0),
+                Padding = new Thickness(),
                 Foreground = new SolidColorBrush(Color.FromRgb(94, 94, 94))
             };
             Children.Add(TrackAuthorLabel);

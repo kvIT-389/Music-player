@@ -5,12 +5,11 @@ using System.Windows.Media;
 
 namespace MusicPlayer
 {
-    public class MainWindow : Window
+    class MainWindow : Window
     {
-        TracksBox TracksBox;
-        PlaylistsBox PlaylistsBox;
-        GridSplitter Splitter;
-        ControlsBar ControlsBar;
+        TracksBox TracksBox { get; }
+        PlaylistsBox PlaylistsBox { get; }
+        ControlsBar ControlsBar { get; }
 
         public MainWindow()
         {
@@ -28,23 +27,21 @@ namespace MusicPlayer
             // Creating application interface 
 
             var main_grid = new MainWindowGrid();
-            Content = main_grid;
 
-            TracksBox = new TracksBox();
-            main_grid.AddChild(TracksBox, 0, 2);
-
+            ControlsBar = new ControlsBar();
+            TracksBox = new TracksBox() { Player = ControlsBar.Player };
             PlaylistsBox = new PlaylistsBox() { TracksBox = TracksBox };
-            main_grid.AddChild(PlaylistsBox, 0, 0);
 
-            Splitter = new GridSplitter()
+            main_grid.AddChild(PlaylistsBox, 0, 0);
+            main_grid.AddChild(new GridSplitter()
             {
                 Width = 2.5,
                 HorizontalAlignment = HorizontalAlignment.Center
-            };
-            main_grid.AddChild(Splitter, 0, 1);
-
-            ControlsBar = new ControlsBar();
+            }, 0, 1);
+            main_grid.AddChild(TracksBox, 0, 2);
             main_grid.AddChild(ControlsBar, 1, 0, 1, 3);
+
+            Content = main_grid;
         }
     }
 
